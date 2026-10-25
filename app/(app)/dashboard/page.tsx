@@ -7,12 +7,34 @@ import {
 import StatCard from "@/components/StatCard";
 import { useSiteId } from "@/components/Shell";
 import {
-  dayRange, fmtDwell, fmtTime, getDemographics, getDwell, getFootfall, getOccupancy,
+  dayRange, fmtDwell, fmtNumber, fmtTime, getDemographics, getDwell, getErrorMessage, getFootfall, getOccupancy,
   pickArray, pickNumber,
 } from "@/lib/api";
 import { closeSocket, getSocket } from "@/lib/socket";
 
+type DataPoint = Record<string, unknown>;
+type AlertItem = {
+  id: number;
+  payload: DataPoint;
+};
+
 const pct = (now: number, prev: number) => (prev ? ((now - prev) / prev) * 100 : null);
+
+const asRecord = (value: unknown): DataPoint =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as DataPoint)
+    : {};
+
+const pointValue = (point: DataPoint, ...keys: string[]) =>
+  keys.map((key) => point[key]).find((value) => value !== undefined);
+
+const displayValue = (value: unknown) =>
+  typeof value === "number" ? fmtNumber(value) : typeof value === "string" ? value : "-";
+
+const pointNumber = (point: DataPoint, ...keys: string[]) => {
+  const value = Number(pointValue(point, ...keys) ?? 0);
+  return Number.isFinite(value) ? value : 0;
+};
 
 export default function Dashboard() {
   const siteId = useSiteId();
@@ -25,12 +47,11 @@ export default function Dashboard() {
   const [dwellDelta, setDwellDelta] = useState<number | null>(null);
   const [occ, setOcc] = useState<{ time: string; count: number }[]>([]);
   const [demo, setDemo] = useState<{ time: string; male: number; female: number }[]>([]);
-  const [alerts, setAlerts] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
 
   useEffect(() => {
     if (!siteId) return;
     let active = true;
-    setError("");
     const today = dayRange(0);
     const yest = dayRange(1);
 
@@ -42,6 +63,7 @@ export default function Dashboard() {
         ]);
         if (!active) return;
 
+        setError("");
         const dw = pickNumber(d0, ["avgDwellMinutes", "averageDwellTime", "avgDwell", "dwell"]);
         const dwY = pickNumber(d1, ["avgDwellMinutes", "averageDwellTime", "avgDwell", "dwell"]);
         const ff = pickNumber(f0, ["footfall", "count", "total"]);
@@ -49,23 +71,29 @@ export default function Dashboard() {
         setDwell(dw); setDwellDelta(pct(dw, dwY));
         setFootfall(ff); setFootDelta(pct(ff, ffY));
 
-        const occSeries = pickArray(o).map((r: any) => ({
-          time: fmtTime(r.time ?? r.timestamp ?? r.hour ?? r.label ?? r.bucket ?? r.from),
-          count: Number(r.count ?? r.occupancy ?? r.value ?? r.avg ?? 0),
-        }));
+        const occSeries = pickArray(o).map((value) => {
+          const point = asRecord(value);
+          return {
+            time: fmtTime(pointValue(point, "time", "timestamp", "hour", "label", "bucket", "from")),
+            count: pointNumber(point, "count", "occupancy", "value", "avg"),
+          };
+        });
         setOcc(occSeries);
         if (occSeries.length) setLive(occSeries[occSeries.length - 1].count);
 
         setDemo(
-          pickArray(dm).map((r: any) => ({
-            time: fmtTime(r.time ?? r.timestamp ?? r.hour ?? r.label ?? r.bucket ?? r.from),
-            male: Number(r.male ?? r.Male ?? r.maleCount ?? 0),
-            female: Number(r.female ?? r.Female ?? r.femaleCount ?? 0),
-          }))
+          pickArray(dm).map((value) => {
+            const point = asRecord(value);
+            return {
+              time: fmtTime(pointValue(point, "time", "timestamp", "hour", "label", "bucket", "from")),
+              male: pointNumber(point, "male", "Male", "maleCount"),
+              female: pointNumber(point, "female", "Female", "femaleCount"),
+            };
+          })
         );
-      } catch (e: any) {
+      } catch (error: unknown) {
         if (active) {
-          setError(e?.response?.data?.message || e?.message || "Failed to load dashboard data");
+          setError(getErrorMessage(error, "Failed to load dashboard data"));
         }
       } finally {
         if (active) setLoading(false);
@@ -74,12 +102,13 @@ export default function Dashboard() {
 
     // ---- real-time ----
     const s = getSocket();
-    const onLive = (p: any) => {
-      const n = pickNumber(p, ["occupancy", "count", "liveOccupancy", "total"]);
+    const onLive = (payload: unknown) => {
+      const n = pickNumber(payload, ["occupancy", "count", "liveOccupancy", "total"]);
       setLive(n);
       setOcc((prev) => [...prev.slice(-199), { time: fmtTime(Date.now()), count: n }]);
     };
-    const onAlert = (p: any) => setAlerts((prev) => [{ ...p, _t: Date.now() }, ...prev].slice(0, 20));
+    const onAlert = (payload: unknown) =>
+      setAlerts((prev) => [{ id: Date.now(), payload: asRecord(payload) }, ...prev].slice(0, 20));
 
     s.on("live_occupancy", onLive);
     s.on("live occupancy", onLive); // event name in the doc has a space
@@ -120,8 +149,8 @@ export default function Dashboard() {
             <AreaChart data={occ}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="time" />
-              <YAxis allowDecimals={false} />
-              <Tooltip />
+              <YAxis tickFormatter={fmtNumber} />
+              <Tooltip formatter={(value) => fmtNumber(value)} />
               <Area type="monotone" dataKey="count" stroke="#0d9488" fill="#99f6e4" />
             </AreaChart>
           </ResponsiveContainer>
@@ -136,8 +165,8 @@ export default function Dashboard() {
               <LineChart data={demo}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="time" />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
+                <YAxis tickFormatter={fmtNumber} />
+                <Tooltip formatter={(value) => fmtNumber(value)} />
                 <Legend />
                 <Line type="monotone" dataKey="male" stroke="#2563eb" dot={false} />
                 <Line type="monotone" dataKey="female" stroke="#db2777" dot={false} />
@@ -151,11 +180,17 @@ export default function Dashboard() {
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={pie} dataKey="value" nameKey="name" outerRadius={80} label>
+                <Pie
+                  data={pie}
+                  dataKey="value"
+                  nameKey="name"
+                  outerRadius={80}
+                  label={({ name, value }) => `${name}: ${fmtNumber(value)}`}
+                >
                   <Cell fill="#2563eb" />
                   <Cell fill="#db2777" />
                 </Pie>
-                <Tooltip />
+                <Tooltip formatter={(value) => fmtNumber(value)} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
@@ -169,14 +204,15 @@ export default function Dashboard() {
           <p className="text-sm text-gray-400">No alerts yet. Waiting for entry/exit events…</p>
         ) : (
           <ul className="divide-y text-sm">
-            {alerts.map((a,i) => (
-              <li key={i} className="flex items-center justify-between py-2">
+            {alerts.map(({ id, payload }, index) => (
+              <li key={`${id}-${index}`} className="flex items-center justify-between py-2">
                 <span>
-                  <b className="capitalize">{a.action ?? a.type ?? "event"}</b> · zone {a.zone ?? a.zoneName ?? "-"} ·
-                  site {a.site ?? a.siteName ?? "-"}
+                  <b className="capitalize">{displayValue(payload.action ?? payload.type ?? "event")}</b> · zone{" "}
+                  {displayValue(payload.zone ?? payload.zoneName)} · site{" "}
+                  {displayValue(payload.site ?? payload.siteName)}
                 </span>
                 <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
-                  {a.severity ?? "info"}
+                  {displayValue(payload.severity ?? "info")}
                 </span>
               </li>
             ))}

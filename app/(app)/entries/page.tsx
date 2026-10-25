@@ -1,14 +1,32 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useSiteId } from "@/components/Shell";
-import { dayRange, fmtDateTime, fmtDwell, getEntries, pickArray, pickNumber } from "@/lib/api";
+import {
+  dayRange,
+  fmtDateTime,
+  fmtDwell,
+  fmtNumber,
+  getEntries,
+  getErrorMessage,
+  pickArray,
+  pickNumber,
+} from "@/lib/api";
 
 const PAGE_SIZE = 10;
+type Entry = Record<string, unknown>;
+
+const asEntry = (value: unknown): Entry =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Entry)
+    : {};
+
+const displayValue = (value: unknown) =>
+  typeof value === "number" ? fmtNumber(value) : typeof value === "string" ? value : "-";
 
 export default function EntriesPage() {
   const siteId = useSiteId();
   const [page, setPage] = useState(1);
-  const [rows, setRows] = useState<any[]>([]);
+  const [rows, setRows] = useState<Entry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -16,17 +34,16 @@ export default function EntriesPage() {
   useEffect(() => {
     if (!siteId) return;
     let active = true;
-    setLoading(true);
-    setError("");
     getEntries(dayRange(0), page, PAGE_SIZE)
       .then((res) => {
         if (!active) return;
-        const list = pickArray(res);
+        const list = pickArray(res).map(asEntry);
         setRows(list);
         setTotal(pickNumber(res, ["total", "totalCount", "totalRecords", "totalElements"]) || list.length);
+        setError("");
       })
-      .catch((e) => {
-        if (active) setError(e?.response?.data?.message || "Failed to load entries");
+      .catch((error: unknown) => {
+        if (active) setError(getErrorMessage(error, "Failed to load entries"));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -37,6 +54,10 @@ export default function EntriesPage() {
   }, [page, siteId]);
 
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const goToPage = (nextPage: number) => {
+    setLoading(true);
+    setPage(nextPage);
+  };
 
   return (
     <div className="space-y-4">
@@ -47,8 +68,8 @@ export default function EntriesPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-100 text-left text-gray-600">
             <tr>
-              {["Visitor Name", "Gender", "Entry Time", "Exit Time", "Dwell Time"].map((h) => (
-                <th key={h} className="px-4 py-3 font-medium">{h}</th>
+              {["Visitor Name", "Gender", "Entry Time", "Exit Time", "Dwell Time"].map((h, index) => (
+                <th key={`${h}-${index}`} className="px-4 py-3 font-medium">{h}</th>
               ))}
             </tr>
           </thead>
@@ -58,15 +79,17 @@ export default function EntriesPage() {
             ) : rows.length === 0 ? (
               <tr><td colSpan={5} className="p-6 text-center text-gray-400">No records</td></tr>
             ) : (
-              rows.map((r, i) => (
-                <tr key={r.id ?? i} className="border-t">
-                  <td className="px-4 py-3">{r.name ?? r.visitorName ?? r.personName ?? "-"}</td>
-                  <td className="px-4 py-3 capitalize">{r.gender ?? "-"}</td>
-                  <td className="px-4 py-3">{fmtDateTime(r.entryTime ?? r.entry ?? r.entryUtc)}</td>
+              rows.map((entry, index) => (
+                <tr key={`${String(entry.id ?? "entry")}-${page}-${index}`} className="border-t">
+                  <td className="px-4 py-3">{displayValue(entry.name ?? entry.visitorName ?? entry.personName)}</td>
+                  <td className="px-4 py-3 capitalize">{displayValue(entry.gender)}</td>
+                  <td className="px-4 py-3">{fmtDateTime(entry.entryTime ?? entry.entry ?? entry.entryUtc)}</td>
                   <td className="px-4 py-3">
-                    {r.exitTime ?? r.exit ?? r.exitUtc ? fmtDateTime(r.exitTime ?? r.exit ?? r.exitUtc) : "Inside"}
+                    {entry.exitTime ?? entry.exit ?? entry.exitUtc
+                      ? fmtDateTime(entry.exitTime ?? entry.exit ?? entry.exitUtc)
+                      : "Inside"}
                   </td>
-                  <td className="px-4 py-3">{fmtDwell(r.dwellTime ?? r.dwell ?? r.dwellMinutes)}</td>
+                  <td className="px-4 py-3">{fmtDwell(entry.dwellTime ?? entry.dwell ?? entry.dwellMinutes)}</td>
                 </tr>
               ))
             )}
@@ -79,14 +102,14 @@ export default function EntriesPage() {
         <div className="flex gap-2">
           <button
             disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
+            onClick={() => goToPage(page - 1)}
             className="rounded border bg-white px-3 py-1 disabled:opacity-40"
           >
             Prev
           </button>
           <button
             disabled={page >= pages}
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => goToPage(page + 1)}
             className="rounded border bg-white px-3 py-1 disabled:opacity-40"
           >
             Next

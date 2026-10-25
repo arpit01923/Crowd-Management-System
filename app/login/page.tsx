@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { login, setToken } from "@/lib/api";
+import { getErrorMessage, login, setToken } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,8 +19,8 @@ export default function LoginPage() {
       const token = await login(email.trim(), password);
       setToken(token);
       router.replace("/dashboard");
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Invalid email or password");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Invalid email or password"));
     } finally {
       setLoading(false);
     }

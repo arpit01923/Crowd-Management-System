@@ -1,3 +1,5 @@
+import { fmtNumber } from "@/lib/api";
+
 export default function StatCard({
   title,
   value,
@@ -13,10 +15,12 @@ export default function StatCard({
   return (
     <div className="rounded-xl border bg-white p-5 shadow-sm">
       <p className="text-sm text-gray-500">{title}</p>
-      <p className="mt-2 text-3xl font-semibold">{value}</p>
+      <p className="mt-2 text-3xl font-semibold">
+        {typeof value === "number" ? fmtNumber(value) : value}
+      </p>
       {delta !== undefined && delta !== null && (
         <p className={`mt-1 text-sm ${up ? "text-green-600" : "text-red-600"}`}>
-          {up ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}% vs yesterday
+          {up ? "▲" : "▼"} {fmtNumber(Math.abs(delta))}% vs yesterday
         </p>
       )}
       {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}

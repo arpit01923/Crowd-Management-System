@@ -2,7 +2,14 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { clearToken, getSiteId, getSites, setSiteId, type Site } from "@/lib/api";
+import {
+  clearToken,
+  getErrorMessage,
+  getSiteId,
+  getSites,
+  setSiteId,
+  type Site,
+} from "@/lib/api";
 import { closeSocket } from "@/lib/socket";
 
 const SiteContext = createContext<string | null>(null);
@@ -38,9 +45,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         }
       })
       .catch((error: unknown) => {
-        setSitesError(
-          error instanceof Error ? error.message : "Failed to load available sites."
-        );
+        setSitesError(getErrorMessage(error, "Failed to load available sites."));
       })
       .finally(() => setSitesLoading(false));
   }, []);
@@ -57,9 +62,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         <aside className="w-56 shrink-0 border-r bg-white p-4 flex flex-col">
           <h1 className="mb-6 text-lg font-bold text-teal-700">Crowd Management</h1>
           <nav className="flex flex-col gap-1">
-            {links.map((l) => (
+            {links.map((l, index) => (
               <Link
-                key={l.href}
+                key={`${l.href}-${index}`}
                 href={l.href}
                 className={`rounded px-3 py-2 text-sm ${
                   path === l.href ? "bg-teal-600 text-white" : "hover:bg-gray-100"
@@ -86,8 +91,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               <option value="">
                 {sitesLoading ? "Loading sites…" : sites.length ? "Select a site" : "No sites available"}
               </option>
-              {sites.map((site) => (
-                <option key={site.siteId} value={site.siteId}>
+              {sites.map((site, index) => (
+                <option key={`${site.siteId}-${index}`} value={site.siteId}>
                   {site.name}
                 </option>
               ))}
